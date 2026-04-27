@@ -1,0 +1,6 @@
+# teleop.yaml
+axis_linear: 1  # Usually left stick vertical
+axis_angular: 0 # Usually left stick horizontal
+scale_linear: 1.0
+scale_angular: 2.0
+enable_button: 4 # e.g., L1 button to enable movement

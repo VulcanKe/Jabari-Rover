@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+
+import RPi.GPIO as GPIO
+
+import rclpy
+from rclpy.node import Node
+from geometry_msgs.msg import Vector3
+import time
+
+class PanTiltController(Node):
+    def __init__(self):
+        super().__init__('pan_tilt_controller')
+        self.pan_pin = 12   # GPIO17
+        self.tilt_pin = 13  # GPIO18
+
+        GPIO.setmode(GPIO.BCM)
+        GPIO.setup(self.pan_pin, GPIO.OUT)
+        GPIO.setup(self.tilt_pin, GPIO.OUT)
+
+        self.pan_pwm = GPIO.PWM(self.pan_pin, 50)  # 50 Hz
+        self.tilt_pwm = GPIO.PWM(self.tilt_pin, 50)
+
+        self.pan_pwm.start(7.5)
+        self.tilt_pwm.start(7.5)
+
+        self.subscription = self.create_subscription(
+            Vector3,
+            'pan_tilt',
+            self.listener_callback,
+            10
+        )
+        self.get_logger().info("Pan-Tilt controller started")
+
+    def angle_to_duty(self, angle):
+        return 2.5 + (angle / 180.0) * 10.0  # Maps 0-180 to 2.5-12.5
+
+    def listener_callback(self, msg):
+        pan_angle = max(0, min(180, msg.x))
+        tilt_angle = max(0, min(180, msg.y))
+
+        pan_duty = self.angle_to_duty(pan_angle)
+        tilt_duty = self.angle_to_duty(tilt_angle)
+
+        self.pan_pwm.ChangeDutyCycle(pan_duty)
+        self.tilt_pwm.ChangeDutyCycle(tilt_duty)
+
+        self.get_logger().info(f"Set Pan: {pan_angle}°, Tilt: {tilt_angle}°")
+
+    def destroy_node(self):
+        self.pan_pwm.stop()
+        self.tilt_pwm.stop()
+        GPIO.cleanup()
+        super().destroy_node()
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = PanTiltController()
+
+    try:
+        rclpy.spin(node)
+    except KeyboardInterrupt:
+        pass
+
+    node.destroy_node()
+    rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()

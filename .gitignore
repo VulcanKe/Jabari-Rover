@@ -1,0 +1,39 @@
+# Build and install directories (anywhere in the repo)
+build/
+install/
+log/
+
+# Compiled files
+*.o
+*.so
+*.a
+*.out
+*.elf
+*.bin
+*.hex
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.env/
+
+# ROS / colcon extras
+*.log
+*.db3
+
+# VS Code / IDEs
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.swp
+*~

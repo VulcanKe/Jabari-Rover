@@ -1,0 +1,79 @@
+# JABARI Manual Control Node - Optimized Configuration
+# Streamlined configuration with essential parameters only
+
+manual_control_node:
+  ros__parameters:
+    # ===== CORE VELOCITY LIMITS =====
+    max_linear_velocity: 1.0   # m/s
+    max_angular_velocity: 2.0  # rad/s
+    
+    # ===== SAFETY PARAMETERS =====
+    command_timeout: 2.0       # seconds - rover stops if no command received
+    
+    # ===== SPEED CONTROL =====
+    initial_linear_ratio: 0.5  # initial speed ratio (0.0 to 1.0)
+    initial_angular_ratio: 0.5 # initial speed ratio (0.0 to 1.0)
+    speed_adjustment_step: 0.1 # step size for speed adjustments
+    min_speed_ratio: 0.1       # minimum speed ratio
+    max_speed_ratio: 1.0       # maximum speed ratio
+    
+    button_toggle_pivot: 7
+    button_lin_up: 5
+    button_lin_down: 4
+    button_ang_up: 3
+    button_ang_down: 2
+    pivot_cmd_value: 1.0
+    speed_step: 0.1
+
+# ===== ENVIRONMENT-SPECIFIC CONFIGURATIONS =====
+
+# Development/Testing - Conservative settings with debugging
+development:
+  manual_control_node:
+    ros__parameters:
+      max_linear_velocity: 0.3
+      max_angular_velocity: 1.0
+      command_timeout: 3.0
+      initial_linear_ratio: 0.5
+      initial_angular_ratio: 0.5
+      button_toggle_pivot: 7
+      button_lin_up: 5
+      button_lin_down: 4
+      button_ang_up: 3
+      button_ang_down: 2
+      pivot_cmd_value: 1.0
+      speed_step: 0.1
+
+# Production/Field - Optimized for real-world operation
+production:
+  manual_control_node:
+    ros__parameters:
+      max_linear_velocity: 1.2
+      max_angular_velocity: 2.5
+      command_timeout: 1.5
+      initial_linear_ratio: 0.5
+      initial_angular_ratio: 0.5
+      button_toggle_pivot: 7
+      button_lin_up: 5
+      button_lin_down: 4
+      button_ang_up: 3
+      button_ang_down: 2
+      pivot_cmd_value: 1.0
+      speed_step: 0.1
+
+# Safety Mode - Ultra-conservative for sensitive operations
+safety_mode:
+  manual_control_node:
+    ros__parameters:
+      max_linear_velocity: 0.2
+      max_angular_velocity: 0.5
+      command_timeout: 1.0
+      initial_linear_ratio: 0.3
+      initial_angular_ratio: 0.3
+      button_toggle_pivot: 7
+      button_lin_up: 5
+      button_lin_down: 4
+      button_ang_up: 3
+      button_ang_down: 2
+      pivot_cmd_value: 1.0
+      speed_step: 0.1

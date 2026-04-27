@@ -1,0 +1,19 @@
+left_driver:
+  ros__parameters:
+    speed_topic: "/motor/left_speed"
+    en_a_pin: 12
+    in1_pin: 5
+    in2_pin: 6
+    en_b_pin: 12
+    in3_pin: 5
+    in4_pin: 6
+
+right_driver:
+  ros__parameters:
+    speed_topic: "/motor/right_speed"
+    en_a_pin: 13
+    in1_pin: 19
+    in2_pin: 26
+    en_b_pin: 13
+    in3_pin: 19
+    in4_pin: 26

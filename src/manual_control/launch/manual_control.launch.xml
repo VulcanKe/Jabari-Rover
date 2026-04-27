@@ -1,0 +1,64 @@
+<?xml version="1.0"?>
+<!--
+Launch file for JABARI Manual Control Node (XML format)
+
+This launch file provides various configurations for running the manual control node
+with different parameters and in combination with other nodes.
+
+Usage:
+    ros2 launch jabari_manual_control manual_control.launch.xml
+    ros2 launch jabari_manual_control manual_control.launch.xml use_sim_time:=true
+    ros2 launch jabari_manual_control manual_control.launch.xml max_linear_velocity:=0.5
+-->
+
+<launch>
+    <!-- Launch Arguments -->
+    <arg name="use_sim_time" default="false" description="Use simulation time if true"/>
+    <arg name="config_file" default="$(find-pkg-share jabari_manual_control)/config/manual_control_params.yaml" description="Path to configuration file"/>
+    <arg name="max_linear_velocity" default="1.0" description="Maximum linear velocity in m/s"/>
+    <arg name="max_angular_velocity" default="2.0" description="Maximum angular velocity in rad/s"/>
+    <arg name="command_timeout" default="2.0" description="Command timeout in seconds"/>
+    <arg name="enable_debug" default="false" description="Enable debug logging"/>
+    <arg name="log_level" default="info" description="Logging level (debug, info, warn, error)"/>
+
+    <!-- Log launch information -->
+    <log message="Starting JABARI Manual Control Node with parameters:
+  Max Linear Velocity: 1.0 m/s
+  Max Angular Velocity: 2.0 rad/s
+  Command Timeout: 2.0 seconds
+  Debug Logging: false
+  Configuration File: $(var config_file)"/>
+
+    <!-- Manual Control Node -->
+    <node pkg="manual_control"
+          exec="manual_control_node"
+          name="manual_control_node"
+          output="screen"
+          args="--ros-args --log-level $(var log_level)">
+        
+        <!-- Load parameters from config file -->
+        <param from="$(var config_file)"/>
+        
+        <!-- Override parameters from launch arguments -->
+        <param name="use_sim_time" value="$(var use_sim_time)"/>
+        <param name="max_linear_velocity" value="$(var max_linear_velocity)"/>
+        <param name="max_angular_velocity" value="$(var max_angular_velocity)"/>
+        <param name="command_timeout" value="$(var command_timeout)"/>
+        <param name="enable_debug_logging" value="$(var enable_debug)"/>
+        
+        <!-- Topic remappings (uncomment if needed) -->
+        <!-- <remap from="/manual_cmd_vel" to="/robot/cmd_vel"/> -->
+    </node>
+
+    <!-- Optional: RQT GUI for manual control (launched only when debug is enabled) -->
+    <node pkg="rqt_robot_steering"
+          exec="rqt_robot_steering"
+          name="rqt_robot_steering"
+          output="screen"
+          if="$(var enable_debug)">
+        
+        <!-- Topic remappings -->
+        <remap from="/cmd_vel" to="/external_manual_cmd"/>
+    </node>
+
+</launch>

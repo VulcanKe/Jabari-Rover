@@ -1,0 +1,4 @@
+[console_scripts]
+manual_control_node = manual_control.manual_control_node:main
+test_manual_control = manual_control.test_manual_control:main
+

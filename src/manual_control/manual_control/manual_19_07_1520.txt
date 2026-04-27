@@ -1,0 +1,660 @@
+#!/usr/bin/env python3
+"""
+JABARI MARS ROVER - Enhanced Manual Control Node
+=================================================
+
+Enhanced version with better motor controller integration and advanced joystick features.
+
+New Features:
+- Explicit pivot mode control
+- Tank drive mode option
+- Deadman switch safety
+- Speed ramping for smooth acceleration
+- Motor health monitoring integration
+"""
+
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
+from geometry_msgs.msg import Twist, Vector3
+from std_msgs.msg import String, Bool, Float32
+from sensor_msgs.msg import Joy
+import time
+import json
+import threading
+import math
+
+
+class EnhancedManualControlNode(Node):
+    """
+    Enhanced Manual Control Node with better motor controller integration
+    """
+    
+    def __init__(self):
+        super().__init__('enhanced_manual_control_node')
+        
+        self.load_parameters()
+        
+        # QoS Profile
+        reliable_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=10
+        )
+        
+        # === ENHANCED JOYSTICK STATE ===
+        self.joy_enabled = False
+        self.deadman_active = False  # NEW: Deadman switch
+        self.last_button_states = []
+        
+        # Enhanced button mappings
+        self.BUTTON_DEADMAN = 0                  # A/X - Must hold for movement
+        self.BUTTON_MODE_DEFAULT = 1             # B/Circle - Set to default/normal mode
+        self.BUTTON_MODE_PIVOT = 2               # X/Square - Set to pivot mode
+        self.BUTTON_MODE_TANK = 3                # Y/Triangle - Set to tank drive mode
+        self.BUTTON_LINEAR_SPEED_UP = 4          # LB - Increase linear speed  
+        self.BUTTON_LINEAR_SPEED_DOWN = 5        # RB - Decrease linear speed
+        self.BUTTON_ANGULAR_SPEED_UP = 6         # LT - Increase angular speed
+        self.BUTTON_ANGULAR_SPEED_DOWN = 7       # RT - Decrease angular speed
+        self.BUTTON_RESET_PAN_TILT = 8           # Select - Reset camera
+        self.BUTTON_ENABLE = 9                   # Start - Toggle joystick control
+        self.BUTTON_SPEED_BOOST = 10             # L3 (Left stick click) - Temporary speed boost
+        
+        # Axis mappings
+        self.AXIS_LINEAR = 1          # Left stick vertical
+        self.AXIS_ANGULAR = 3         # Right stick horizontal
+        self.AXIS_LEFT_TANK = 1       # Left stick vertical (tank mode)
+        self.AXIS_RIGHT_TANK = 4      # Right stick vertical (tank mode)
+        self.AXIS_PAN = 5             # Right stick horizontal (camera)
+        self.AXIS_TILT = 6            # Right stick vertical (camera)
+        
+        # === NEW DRIVE MODES ===
+        self.DRIVE_MODE_DEFAULT = 0   # Normal differential drive
+        self.DRIVE_MODE_PIVOT = 1     # Pure rotation (no forward/back)
+        self.DRIVE_MODE_TANK = 2      # Individual track control
+        
+        self.current_drive_mode = self.DRIVE_MODE_DEFAULT
+        self.drive_mode_names = {
+            self.DRIVE_MODE_DEFAULT: "DEFAULT",
+            self.DRIVE_MODE_PIVOT: "PIVOT", 
+            self.DRIVE_MODE_TANK: "TANK"
+        }
+        
+        # === ENHANCED SPEED CONTROL ===
+        self.linear_speed_ratio = 0.5
+        self.angular_speed_ratio = 0.5
+        self.speed_adjustment_step = 0.1
+        self.min_speed_ratio = 0.1
+        self.max_speed_ratio = 1.0
+        self.boost_multiplier = 1.5  # Speed boost factor
+        self.speed_boost_active = False
+        
+        # NEW: Speed ramping for smooth acceleration
+        self.target_linear_vel = 0.0
+        self.target_angular_vel = 0.0
+        self.current_linear_vel = 0.0
+        self.current_angular_vel = 0.0
+        self.acceleration_rate = 2.0  # m/s² or rad/s²
+        self.ramp_enabled = True
+        
+        # Camera state
+        self.pan_angle = 90.0
+        self.tilt_angle = 90.0
+        
+        # === PUBLISHERS ===
+        self.cmd_vel_pub = self.create_publisher(Twist, '/cmd_vel', reliable_qos)
+        self.pan_tilt_pub = self.create_publisher(Vector3, '/pan_tilt', reliable_qos)
+        self.status_pub = self.create_publisher(String, '/manual_control_status', reliable_qos)
+        
+        # NEW: Motor health monitoring
+        self.motor_health_pub = self.create_publisher(String, '/motor_health_request', reliable_qos)
+        
+        # === SUBSCRIBERS ===
+        self.joy_sub = self.create_subscription(Joy, '/joy', self.joy_callback, reliable_qos)
+        self.emergency_stop_sub = self.create_subscription(Bool, '/emergency_stop', self.emergency_stop_callback, reliable_qos)
+        
+        # NEW: Motor feedback subscribers
+        self.left_motor_sub = self.create_subscription(Float32, '/motor/left_feedback', self.left_motor_callback, reliable_qos)
+        self.right_motor_sub = self.create_subscription(Float32, '/motor/right_feedback', self.right_motor_callback, reliable_qos)
+        
+        # === INTERNAL STATE ===
+        self.emergency_stop_active = False
+        self.last_command_time = time.time()
+        self.command_count = 0
+        self.is_active = True
+        
+        # NEW: Motor feedback state
+        self.left_motor_speed = 0.0
+        self.right_motor_speed = 0.0
+        self.motor_health_good = True
+        
+        self.command_lock = threading.Lock()
+        
+        # === TIMERS ===
+        self.status_timer = self.create_timer(2.0, self.publish_status)
+        self.timeout_timer = self.create_timer(0.1, self.check_command_timeout)
+        
+        # NEW: Speed ramping timer
+        if self.ramp_enabled:
+            self.ramp_timer = self.create_timer(0.02, self.update_speed_ramp)  # 50Hz
+        
+        self.get_logger().info(
+            f'Enhanced Manual Control Node initialized\n'
+            f'  - Drive modes: Default, Pivot, Tank\n'
+            f'  - Mode buttons: B=Default, X=Pivot, Y=Tank\n'
+            f'  - Current mode: {self.drive_mode_names[self.current_drive_mode]}\n'
+            f'  - Deadman switch: Button {self.BUTTON_DEADMAN} (A)\n'
+            f'  - Speed boost: Button {self.BUTTON_SPEED_BOOST} (L3)\n'
+            f'  - Speed ramping: {"Enabled" if self.ramp_enabled else "Disabled"}\n'
+            f'  - Motor feedback integration: Enabled'
+        )
+        
+        # Display initial control layout
+        self.display_control_reminder()
+    
+    def display_control_reminder(self):
+        """Display current control mapping"""
+        mode_name = self.drive_mode_names[self.current_drive_mode]
+        self.get_logger().info(
+            f'\n=== CONTROLLER LAYOUT ({mode_name} MODE) ===\n'
+            f'Movement Controls:\n'
+            f'  A (hold): Deadman switch - MUST HOLD for movement\n'
+            f'  Left Stick: {"Left track" if self.current_drive_mode == self.DRIVE_MODE_TANK else "Forward/Backward"}\n'
+            f'  Right Stick: {"Right track" if self.current_drive_mode == self.DRIVE_MODE_TANK else "Turn (disabled in PIVOT)" if self.current_drive_mode == self.DRIVE_MODE_PIVOT else "Turn"}\n'
+            f'\nDrive Mode Selection:\n'
+            f'  B: DEFAULT mode (normal driving)\n'
+            f'  X: PIVOT mode (rotate only)\n'
+            f'  Y: TANK mode (individual tracks)\n'
+            f'\nSpeed Controls:\n'
+            f'  LB/RB: Linear speed up/down\n'
+            f'  LT/RT: Angular speed up/down\n'
+            f'  L3 (hold): Speed boost\n'
+            f'\nOther:\n'
+            f'  Start: Enable/disable joystick\n'
+            f'  Select: Reset camera center\n'
+            f'=======================================\n'
+        )
+    
+    def load_parameters(self):
+        """Load enhanced parameters"""
+        # Original parameters
+        self.declare_parameter('max_linear_velocity', 1.0)
+        self.declare_parameter('max_angular_velocity', 2.0)
+        self.declare_parameter('command_timeout', 2.0)
+        self.declare_parameter('initial_linear_ratio', 0.5)
+        self.declare_parameter('initial_angular_ratio', 0.5)
+        self.declare_parameter('speed_adjustment_step', 0.1)
+        self.declare_parameter('min_speed_ratio', 0.1)
+        self.declare_parameter('max_speed_ratio', 1.0)
+        
+        # NEW: Enhanced parameters
+        self.declare_parameter('enable_deadman_switch', True)
+        self.declare_parameter('enable_speed_ramping', True)
+        self.declare_parameter('acceleration_rate', 2.0)
+        self.declare_parameter('speed_boost_multiplier', 1.5)
+        self.declare_parameter('tank_drive_available', True)
+        self.declare_parameter('start_joystick_enabled', True)  # NEW
+        
+        # Load parameters
+        self.max_linear_vel = self.get_parameter('max_linear_velocity').value
+        self.max_angular_vel = self.get_parameter('max_angular_velocity').value
+        self.command_timeout = self.get_parameter('command_timeout').value
+        self.linear_speed_ratio = self.get_parameter('initial_linear_ratio').value
+        self.angular_speed_ratio = self.get_parameter('initial_angular_ratio').value
+        self.speed_adjustment_step = self.get_parameter('speed_adjustment_step').value
+        self.min_speed_ratio = self.get_parameter('min_speed_ratio').value
+        self.max_speed_ratio = self.get_parameter('max_speed_ratio').value
+        
+        # NEW: Load enhanced parameters
+        self.joy_enabled = self.get_parameter('start_joystick_enabled').value
+        self.deadman_required = self.get_parameter('enable_deadman_switch').value
+        self.ramp_enabled = self.get_parameter('enable_speed_ramping').value
+        self.acceleration_rate = self.get_parameter('acceleration_rate').value
+        self.boost_multiplier = self.get_parameter('speed_boost_multiplier').value
+        self.tank_drive_available = self.get_parameter('tank_drive_available').value
+    
+    def joy_callback(self, msg: Joy):
+        """Enhanced joystick handling with new features - FIXED VERSION"""
+        
+        # Initialize button states if needed
+        if not self.last_button_states:
+            self.last_button_states = [0] * len(msg.buttons)
+        
+        # Ensure arrays match length (handle variable controller types)
+        if len(self.last_button_states) != len(msg.buttons):
+            self.get_logger().warn(f"Button array size changed: {len(self.last_button_states)} -> {len(msg.buttons)}")
+            self.last_button_states = [0] * len(msg.buttons)
+        
+        # Update deadman switch state with bounds check
+        self.deadman_active = (len(msg.buttons) > self.BUTTON_DEADMAN and 
+                              bool(msg.buttons[self.BUTTON_DEADMAN]))
+        
+        # Handle button presses with proper bounds checking
+        for idx, (prev, curr) in enumerate(zip(self.last_button_states, msg.buttons)):
+            if curr == 1 and prev == 0:  # Button pressed
+                
+                # FIXED: Add bounds check for enable button
+                if idx == self.BUTTON_ENABLE and idx < len(msg.buttons):
+                    self.joy_enabled = not self.joy_enabled
+                    state = "ENABLED" if self.joy_enabled else "DISABLED"
+                    self.get_logger().info(f"Joystick control {state}")
+                    if not self.joy_enabled:
+                        self.send_stop_command()
+                
+                # Add bounds checks for all button mappings
+                elif idx == self.BUTTON_RESET_PAN_TILT and idx < len(msg.buttons):
+                    self.reset_pan_tilt()
+                
+                elif idx == self.BUTTON_LINEAR_SPEED_UP and idx < len(msg.buttons):
+                    self.adjust_linear_speed(True)
+                
+                elif idx == self.BUTTON_LINEAR_SPEED_DOWN and idx < len(msg.buttons):
+                    self.adjust_linear_speed(False)
+                
+                elif idx == self.BUTTON_ANGULAR_SPEED_UP and idx < len(msg.buttons):
+                    self.adjust_angular_speed(True)
+                
+                elif idx == self.BUTTON_ANGULAR_SPEED_DOWN and idx < len(msg.buttons):
+                    self.adjust_angular_speed(False)
+                
+                # Drive mode selection buttons with bounds checks
+                elif idx == self.BUTTON_MODE_DEFAULT and idx < len(msg.buttons):
+                    self.set_drive_mode(self.DRIVE_MODE_DEFAULT)
+                
+                elif idx == self.BUTTON_MODE_PIVOT and idx < len(msg.buttons):
+                    self.set_drive_mode(self.DRIVE_MODE_PIVOT)
+                
+                elif (idx == self.BUTTON_MODE_TANK and idx < len(msg.buttons) and 
+                      self.tank_drive_available):
+                    self.set_drive_mode(self.DRIVE_MODE_TANK)
+        
+        # Update speed boost state with bounds check
+        self.speed_boost_active = (len(msg.buttons) > self.BUTTON_SPEED_BOOST and 
+                                  bool(msg.buttons[self.BUTTON_SPEED_BOOST]))
+        
+        # Update button states
+        self.last_button_states = list(msg.buttons)
+        
+        # Rest of the movement handling code remains the same...
+        if (self.joy_enabled and 
+            not self.emergency_stop_active and 
+            (not self.deadman_required or self.deadman_active) and
+            self.motor_health_good):
+            
+            if self.current_drive_mode == self.DRIVE_MODE_TANK:
+                self.handle_tank_drive(msg)
+            elif self.current_drive_mode == self.DRIVE_MODE_PIVOT:
+                self.handle_pivot_drive(msg)
+            else:  # DEFAULT mode
+                self.handle_default_drive(msg)
+            
+            self.handle_pan_tilt(msg)
+        else:
+            # Stop if any safety condition fails
+            if self.joy_enabled and (self.current_linear_vel != 0.0 or self.current_angular_vel != 0.0):
+                self.send_stop_command()
+
+    # ADDITIONAL FIX: Add controller detection method
+def detect_controller_type(self, msg: Joy):
+    """Detect controller type and log button/axis availability"""
+    num_buttons = len(msg.buttons)
+    num_axes = len(msg.axes)
+    
+    self.get_logger().info(f"Controller detected: {num_buttons} buttons, {num_axes} axes")
+    
+    # Check if all required buttons are available
+    required_buttons = [
+        (self.BUTTON_DEADMAN, "Deadman Switch (A)"),
+        (self.BUTTON_ENABLE, "Enable (Start)"),
+        (self.BUTTON_MODE_DEFAULT, "Default Mode (B)"),
+        (self.BUTTON_MODE_PIVOT, "Pivot Mode (X)"),
+        (self.BUTTON_MODE_TANK, "Tank Mode (Y)")
+    ]
+    
+    missing_buttons = []
+    for button_idx, button_name in required_buttons:
+        if button_idx >= num_buttons:
+            missing_buttons.append(f"{button_name} (button {button_idx})")
+    
+    if missing_buttons:
+        self.get_logger().warn(f"Missing controller buttons: {', '.join(missing_buttons)}")
+        self.get_logger().warn("Some features may not work properly!")
+    else:
+        self.get_logger().info("All required controller buttons available")
+
+
+    
+    def set_drive_mode(self, mode: int):
+        """Set the drive mode explicitly"""
+        if mode != self.current_drive_mode:
+            old_mode = self.drive_mode_names[self.current_drive_mode]
+            self.current_drive_mode = mode
+            new_mode = self.drive_mode_names[self.current_drive_mode]
+            
+            # Stop movement when changing modes for safety
+            self.send_stop_command()
+            
+            self.get_logger().info(f"Drive mode changed: {old_mode} → {new_mode}")
+            
+            # Log specific mode instructions
+            if mode == self.DRIVE_MODE_DEFAULT:
+                self.get_logger().info("DEFAULT MODE: Left stick=forward/back, Right stick=turn")
+            elif mode == self.DRIVE_MODE_PIVOT:
+                self.get_logger().info("PIVOT MODE: Only rotation, no forward/backward movement")
+            elif mode == self.DRIVE_MODE_TANK:
+                self.get_logger().info("TANK MODE: Left stick=left track, Right stick=right track")
+            
+            # Display current button mapping reminder
+            self.display_control_reminder()
+    
+    def handle_default_drive(self, msg: Joy):
+        """Handle default/normal differential drive mode"""
+        # Get joystick values
+        linear_input = -msg.axes[self.AXIS_LINEAR]   # Left stick Y
+        angular_input = msg.axes[self.AXIS_ANGULAR]  # Right stick X
+        
+        # Apply speed ratios and boost
+        speed_multiplier = self.boost_multiplier if self.speed_boost_active else 1.0
+        
+        linear = linear_input * self.linear_speed_ratio * self.max_linear_vel * speed_multiplier
+        angular = angular_input * self.angular_speed_ratio * self.max_angular_vel * speed_multiplier
+        
+        # Set target velocities for ramping
+        if self.ramp_enabled:
+            self.target_linear_vel = linear
+            self.target_angular_vel = angular
+        else:
+            self.publish_twist_command(linear, angular)
+    
+    def handle_pivot_drive(self, msg: Joy):
+        """Handle pivot drive mode (rotation only, no translation)"""
+        # Only use angular input, ignore linear
+        angular_input = msg.axes[self.AXIS_ANGULAR]  # Right stick X
+        
+        # Apply speed ratios and boost
+        speed_multiplier = self.boost_multiplier if self.speed_boost_active else 1.0
+        
+        linear = 0.0  # Force zero linear movement
+        angular = angular_input * self.angular_speed_ratio * self.max_angular_vel * speed_multiplier
+        
+        # Set target velocities for ramping
+        if self.ramp_enabled:
+            self.target_linear_vel = linear
+            self.target_angular_vel = angular
+        else:
+            self.publish_twist_command(linear, angular)
+    
+    def handle_tank_drive(self, msg: Joy):
+        """Handle tank drive mode"""
+        # Get individual track inputs
+        left_input = -msg.axes[self.AXIS_LEFT_TANK]
+        right_input = -msg.axes[self.AXIS_RIGHT_TANK]
+        
+        # Apply speed ratios and boost
+        speed_multiplier = self.boost_multiplier if self.speed_boost_active else 1.0
+        max_speed = self.linear_speed_ratio * self.max_linear_vel * speed_multiplier
+        
+        left_speed = left_input * max_speed
+        right_speed = right_input * max_speed
+        
+        # Convert to differential drive commands
+        linear = (left_speed + right_speed) / 2.0
+        angular = (right_speed - left_speed) / 0.5  # Assuming 0.5m wheel separation
+        
+        # Set target velocities
+        if self.ramp_enabled:
+            self.target_linear_vel = linear
+            self.target_angular_vel = angular
+        else:
+            self.publish_twist_command(linear, angular)
+        
+        # Log tank drive commands
+        if abs(left_input) > 0.1 or abs(right_input) > 0.1:
+            self.get_logger().info(
+                f"Tank Drive: L={left_speed:.2f}, R={right_speed:.2f} → "
+                f"linear={linear:.2f}, angular={angular:.2f}"
+            )
+    
+    def update_speed_ramp(self):
+        """Update speed ramping (called at 50Hz)"""
+        if not self.ramp_enabled:
+            return
+        
+        dt = 0.02  # 50Hz = 0.02s
+        
+        # Ramp linear velocity
+        linear_diff = self.target_linear_vel - self.current_linear_vel
+        if abs(linear_diff) > 0.001:
+            max_change = self.acceleration_rate * dt
+            change = max(-max_change, min(max_change, linear_diff))
+            self.current_linear_vel += change
+        
+        # Ramp angular velocity  
+        angular_diff = self.target_angular_vel - self.current_angular_vel
+        if abs(angular_diff) > 0.001:
+            max_change = self.acceleration_rate * dt
+            change = max(-max_change, min(max_change, angular_diff))
+            self.current_angular_vel += change
+        
+        # Publish ramped command
+        self.publish_twist_command(self.current_linear_vel, self.current_angular_vel)
+    
+    def publish_twist_command(self, linear: float, angular: float):
+        """Publish Twist command with proper motor controller compatibility"""
+        twist = Twist()
+        twist.linear.x = linear
+        twist.angular.z = angular
+        
+        self.cmd_vel_pub.publish(twist)
+        
+        # Update state
+        with self.command_lock:
+            if not self.ramp_enabled:
+                self.current_linear_vel = linear
+                self.current_angular_vel = angular
+            self.last_command_time = time.time()
+            self.command_count += 1
+        
+        # Determine current drive mode for logging
+        mode_name = self.drive_mode_names[self.current_drive_mode]
+        
+        # Log significant movements
+        if abs(linear) > 0.1 or abs(angular) > 0.1:
+            boost_str = " [BOOST]" if self.speed_boost_active else ""
+            self.get_logger().info(
+                f"{mode_name}: linear={linear:.2f} m/s, angular={angular:.2f} rad/s{boost_str}"
+            )
+    
+    # Motor feedback callbacks
+    def left_motor_callback(self, msg: Float32):
+        """Handle left motor feedback"""
+        self.left_motor_speed = msg.data
+    
+    def right_motor_callback(self, msg: Float32):
+        """Handle right motor feedback"""  
+        self.right_motor_speed = msg.data
+    
+    def adjust_linear_speed(self, increase: bool):
+        """Adjust linear speed ratio"""
+        old_ratio = self.linear_speed_ratio
+        
+        if increase:
+            self.linear_speed_ratio = min(self.max_speed_ratio, self.linear_speed_ratio + self.speed_adjustment_step)
+        else:
+            self.linear_speed_ratio = max(self.min_speed_ratio, self.linear_speed_ratio - self.speed_adjustment_step)
+        
+        if abs(self.linear_speed_ratio - old_ratio) > 0.001:
+            current_speed = self.linear_speed_ratio * self.max_linear_vel
+            self.get_logger().info(f"Linear speed: {self.linear_speed_ratio:.1%} ({current_speed:.2f} m/s)")
+    
+    def adjust_angular_speed(self, increase: bool):
+        """Adjust angular speed ratio"""
+        old_ratio = self.angular_speed_ratio
+        
+        if increase:
+            self.angular_speed_ratio = min(self.max_speed_ratio, self.angular_speed_ratio + self.speed_adjustment_step)
+        else:
+            self.angular_speed_ratio = max(self.min_speed_ratio, self.angular_speed_ratio - self.speed_adjustment_step)
+        
+        if abs(self.angular_speed_ratio - old_ratio) > 0.001:
+            current_speed = self.angular_speed_ratio * self.max_angular_vel
+            self.get_logger().info(f"Angular speed: {self.angular_speed_ratio:.1%} ({current_speed:.2f} rad/s)")
+    
+    def handle_pan_tilt(self, msg: Joy):
+        """Handle camera pan/tilt (unchanged from original)"""
+        pan_input = msg.axes[self.AXIS_PAN] * 2.0
+        tilt_input = msg.axes[self.AXIS_TILT] * 2.0
+        
+        if abs(pan_input) > 0.1 or abs(tilt_input) > 0.1:
+            self.pan_angle = max(0.0, min(180.0, self.pan_angle + pan_input))
+            self.tilt_angle = max(0.0, min(180.0, self.tilt_angle + tilt_input))
+            
+            pan_tilt_msg = Vector3()
+            pan_tilt_msg.x = self.pan_angle
+            pan_tilt_msg.y = self.tilt_angle
+            pan_tilt_msg.z = 0.0
+            
+            self.pan_tilt_pub.publish(pan_tilt_msg)
+    
+    def reset_pan_tilt(self):
+        """Reset camera to center position"""
+        self.pan_angle = 90.0
+        self.tilt_angle = 90.0
+        
+        pan_tilt_msg = Vector3()
+        pan_tilt_msg.x = self.pan_angle
+        pan_tilt_msg.y = self.tilt_angle
+        pan_tilt_msg.z = 0.0
+        
+        self.pan_tilt_pub.publish(pan_tilt_msg)
+        self.get_logger().info("Pan/Tilt reset to center")
+    
+    def send_stop_command(self):
+        """Send stop command"""
+        self.target_linear_vel = 0.0
+        self.target_angular_vel = 0.0
+        
+        twist = Twist()
+        self.cmd_vel_pub.publish(twist)
+        
+        with self.command_lock:
+            self.current_linear_vel = 0.0
+            self.current_angular_vel = 0.0
+    
+    def emergency_stop_callback(self, msg: Bool):
+        """Handle emergency stop"""
+        self.emergency_stop_active = msg.data
+        if self.emergency_stop_active:
+            self.get_logger().warn("EMERGENCY STOP ACTIVATED")
+            self.send_stop_command()
+            self.joy_enabled = False
+    
+    def check_command_timeout(self):
+        """Check for command timeout"""
+        current_time = time.time()
+        
+        with self.command_lock:
+            time_since_last = current_time - self.last_command_time
+            
+            if (time_since_last > self.command_timeout and 
+                (self.current_linear_vel != 0.0 or self.current_angular_vel != 0.0)):
+                
+                self.get_logger().warn(f"Command timeout ({time_since_last:.1f}s) - stopping rover")
+                self.send_stop_command()
+    
+    def publish_status(self):
+        """Publish enhanced status"""
+        try:
+            with self.command_lock:
+                # Determine current drive mode
+                mode_name = self.drive_mode_names[self.current_drive_mode]
+                
+                status_data = {
+                    'timestamp': time.time(),
+                    'node_active': self.is_active,
+                    'joystick_enabled': self.joy_enabled,
+                    'deadman_active': self.deadman_active,
+                    'emergency_stop_active': self.emergency_stop_active,
+                    'motor_health_good': self.motor_health_good,
+                    'drive_mode': {
+                        'current': mode_name,
+                        'current_index': self.current_drive_mode,
+                        'speed_boost_active': self.speed_boost_active,
+                        'available_modes': list(self.drive_mode_names.values())
+                    },
+                    'movement': {
+                        'linear_velocity': self.current_linear_vel,
+                        'angular_velocity': self.current_angular_vel,
+                        'target_linear_velocity': self.target_linear_vel,
+                        'target_angular_velocity': self.target_angular_vel,
+                        'time_since_last_command': time.time() - self.last_command_time
+                    },
+                    'motor_feedback': {
+                        'left_speed': self.left_motor_speed,
+                        'right_speed': self.right_motor_speed
+                    },
+                    'camera': {
+                        'pan_angle': self.pan_angle,
+                        'tilt_angle': self.tilt_angle
+                    },
+                    'speed_ratios': {
+                        'linear_ratio': self.linear_speed_ratio,
+                        'angular_ratio': self.angular_speed_ratio,
+                        'effective_max_linear': self.linear_speed_ratio * self.max_linear_vel,
+                        'effective_max_angular': self.angular_speed_ratio * self.max_angular_vel,
+                        'boost_multiplier': self.boost_multiplier if self.speed_boost_active else 1.0
+                    },
+                    'features': {
+                        'deadman_required': self.deadman_required,
+                        'speed_ramping': self.ramp_enabled,
+                        'tank_drive_available': self.tank_drive_available
+                    }
+                }
+            
+            status_msg = String()
+            status_msg.data = json.dumps(status_data, indent=2)
+            self.status_pub.publish(status_msg)
+            
+        except Exception as e:
+            self.get_logger().error(f"Error publishing status: {e}")
+    
+    def shutdown_gracefully(self):
+        """Graceful shutdown"""
+        self.get_logger().info("Shutting down Enhanced Manual Control Node...")
+        self.send_stop_command()
+        self.reset_pan_tilt()
+        self.is_active = False
+        self.publish_status()
+
+
+def main(args=None):
+    """Main entry point"""
+    rclpy.init(args=args)
+    
+    try:
+        node = EnhancedManualControlNode()
+        
+        from rclpy.executors import MultiThreadedExecutor
+        executor = MultiThreadedExecutor()
+        executor.add_node(node)
+        
+        try:
+            node.get_logger().info("Enhanced Manual Control Node is running...")
+            executor.spin()
+        except KeyboardInterrupt:
+            node.get_logger().info("Keyboard interrupt received")
+        finally:
+            node.shutdown_gracefully()
+            
+    except Exception as e:
+        print(f"Error starting enhanced manual control node: {e}")
+    finally:
+        try:
+            node.destroy_node()
+        except:
+            pass
+        rclpy.shutdown()
+
+
+if __name__ == '__main__':
+    main()
