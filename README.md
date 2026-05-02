@@ -223,12 +223,4 @@ This project is licensed under the **MIT License** – see the [LICENSE](./LICEN
 
 ---
 
-## Contact & Support
-
-- **Maintainer**: Nathan (nathan@jabari-rover.com)
-- **Issue Tracker**: <https://github.com/your-org/Jabari-Rover/issues>
-- **Discussion**: Join the community on the project’s Discord or mailing list.
-
----
-
 *Happy rover building!* 🚀
