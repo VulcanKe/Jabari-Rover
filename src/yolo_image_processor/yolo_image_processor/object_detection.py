@@ -2,7 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CompressedImage
 from std_msgs.msg import String
 from cv_bridge import CvBridge
 import cv2
@@ -50,11 +50,11 @@ class YoloImageProcessor(Node):
 
         qos = QoSProfile(
             depth=self.qos_depth,
-            reliability=ReliabilityPolicy.RELIABLE,
+            reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST
         )
 
-        self.subscription = self.create_subscription(Image, '/camera/image_raw', self.image_callback, qos)
+        self.subscription = self.create_subscription(CompressedImage, '/camera/image_raw/compressed', self.image_callback, qos)
         self.publisher = self.create_publisher(String, '/object_info', 10)
         self.image_pub = self.create_publisher(Image, '/image_annotated', qos)
 
@@ -89,7 +89,7 @@ class YoloImageProcessor(Node):
         start_time = self.get_clock().now().nanoseconds
 
         try:
-            cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+            cv_image = self.bridge.compressed_imgmsg_to_cv2(msg, desired_encoding='bgr8')
             original_h, original_w = cv_image.shape[:2]
             if self.image_scale != 1.0:
                 cv_image = cv2.resize(cv_image, (int(original_w * self.image_scale), int(original_h * self.image_scale)))

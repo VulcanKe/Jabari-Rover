@@ -28,7 +28,7 @@ class CameraPublisher(Node):
         )
 
         # Open default camera
-        self.cap = cv2.VideoCapture(0)
+        self.cap = cv2.VideoCapture("/dev/video0")
         if not self.cap.isOpened():
             self.get_logger().error("Camera not detected.")
         else:
