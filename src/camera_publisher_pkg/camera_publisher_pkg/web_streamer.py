@@ -136,7 +136,8 @@ class ComprehensiveWebStreamer(Node):
         try:
             self.detection_subscription = self.create_subscription(
                 CompressedImage,
-                '/yolo/annotated/compressed',
+                # '/yolo/annotated/compressed', 
+                '/image_annotated',
                 self.detection_callback,
                 detection_qos)
             self.log('INFO', 'system', 'Subscribed to /yolo/annotated/compressed')

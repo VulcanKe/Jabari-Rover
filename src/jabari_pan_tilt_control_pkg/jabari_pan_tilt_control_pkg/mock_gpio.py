@@ -40,3 +40,10 @@ class MockPWM:
 
 def PWM(pin, freq):
     return MockPWM(pin, freq)
+
+def main():
+    print("Mock GPIO initialized")
+
+
+if __name__ == "__main__":
+    main()
