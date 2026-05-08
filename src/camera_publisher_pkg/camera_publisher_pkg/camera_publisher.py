@@ -28,7 +28,7 @@ class CameraPublisher(Node):
         )
 
         # Open default camera
-        self.cap = cv2.VideoCapture("/dev/video0")
+        self.cap = cv2.VideoCapture("/dev/v4l/by-id/usb-DSJ_UC60_Video_200901010001-video-index0")
         if not self.cap.isOpened():
             self.get_logger().error("Camera not detected.")
         else:
