@@ -211,7 +211,7 @@ class ManualControlNode(Node):
         # ------------------------------------------------------------------
         # Internal state
         # ------------------------------------------------------------------
-        self.joy_enabled = False
+        self.joy_enabled = True #Changed this from false
         self.last_button_states = []
         self.current_linear_vel = 0.0
         self.current_angular_vel = 0.0
