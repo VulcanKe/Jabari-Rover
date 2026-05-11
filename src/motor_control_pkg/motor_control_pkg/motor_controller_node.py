@@ -19,25 +19,49 @@ class MotorController(Node):
         linear_vel = msg.linear.x
         angular_vel = msg.angular.z
 
-        if linear_vel == 0.0 and angular_vel != 0.0:
-            # Pivot mode: full voltage spin
-            left_speed = -1.0 if angular_vel > 0 else 1.0
-            right_speed = 1.0 if angular_vel > 0 else -1.0
-            self.get_logger().info("Pivot Mode Activated")
-        else:
-            # Normal mode (linear or curve motion)
-            left_speed = right_speed = linear_vel
-            left_speed = max(min(left_speed, 1.0), -1.0)
-            right_speed = max(min(right_speed, 1.0), -1.0)
+    if linear_vel == 0.0 and angular_vel != 0.0:
+        # Pivot: spin in place
+        left_speed = -angular_vel
+        right_speed = angular_vel
+        self.get_logger().info("Pivot Mode")
+    else:
+        # Differential drive: mix linear + angular
+        left_speed  = linear_vel - angular_vel
+        right_speed = linear_vel + angular_vel
 
-        # Publish to motor drivers
-        self.pub_left.publish(Float32(data=left_speed))
-        self.pub_right.publish(Float32(data=right_speed))
+    # Clamp to [-1, 1]
+    left_speed  = max(-1.0, min(1.0, left_speed))
+    right_speed = max(-1.0, min(1.0, right_speed))
 
-        self.get_logger().info(
-            f"Cmd → linear.x: {linear_vel:.2f}, angular.z: {angular_vel:.2f} → "
-            f"L: {left_speed:.2f}, R: {right_speed:.2f}"
-        )
+    self.pub_left.publish(Float32(data=left_speed))
+    self.pub_right.publish(Float32(data=right_speed))
+    self.get_logger().info(
+        f"L: {left_speed:.2f}, R: {right_speed:.2f}"
+    )
+
+    # def listener_callback(self, msg):
+    #     linear_vel = msg.linear.x
+    #     angular_vel = msg.angular.z
+
+    #     if linear_vel == 0.0 and angular_vel != 0.0:
+    #         # Pivot mode: full voltage spin
+    #         left_speed = -1.0 if angular_vel > 0 else 1.0
+    #         right_speed = 1.0 if angular_vel > 0 else -1.0
+    #         self.get_logger().info("Pivot Mode Activated")
+    #     else:
+    #         # Normal mode (linear or curve motion)
+    #         left_speed = right_speed = linear_vel
+    #         left_speed = max(min(left_speed, 1.0), -1.0)
+    #         right_speed = max(min(right_speed, 1.0), -1.0)
+
+    #     # Publish to motor drivers
+    #     self.pub_left.publish(Float32(data=left_speed))
+    #     self.pub_right.publish(Float32(data=right_speed))
+
+    #     self.get_logger().info(
+    #         f"Cmd → linear.x: {linear_vel:.2f}, angular.z: {angular_vel:.2f} → "
+    #         f"L: {left_speed:.2f}, R: {right_speed:.2f}"
+    #     )
 
 
 def main():
