@@ -17,18 +17,18 @@ def generate_launch_description():
             name='servo_node',
             output='screen',
         ),
-	 Node(
-            package='jabari_pan_tilt_control_pkg',
-            executable='mock_rpi_global',
-            name='servo_node',
-            output='screen',
-        ),
-         Node(
-            package='jabari_pan_tilt_control_pkg',
-            executable='mock_gpio',
-            name='servo_node',
-            output='screen',
-        ),
+	#  Node(
+    #         package='jabari_pan_tilt_control_pkg',
+    #         executable='mock_rpi_global',
+    #         name='servo_node',
+    #         output='screen',
+    #     ),
+    #      Node(
+    #         package='jabari_pan_tilt_control_pkg',
+    #         executable='mock_gpio',
+    #         name='servo_node',
+    #         output='screen',
+    #     ),
         Node(
             package='motor_control_pkg',
             executable='motor_controller_node',
