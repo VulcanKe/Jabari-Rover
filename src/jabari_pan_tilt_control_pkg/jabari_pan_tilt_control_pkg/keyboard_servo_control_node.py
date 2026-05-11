@@ -19,14 +19,14 @@ class KeyboardServoController(Node):
         self.run()
 
     def publish_vector(self):
+        # Clamp FIRST, then assign to message
+        self.pan_angle = max(0.0, min(180.0, self.pan_angle))
+        self.tilt_angle = max(0.0, min(180.0, self.tilt_angle))
+
         msg = Vector3()
         msg.x = float(self.pan_angle)
         msg.y = float(self.tilt_angle)
         msg.z = 0.0
-
-        self.pan_angle = max(0.0, min(180.0, self.pan_angle))
-        self.tilt_angle = max(0.0, min(180.0, self.tilt_angle))
-
 
         self.publisher.publish(msg)
         self.get_logger().info(f"Sent Vector3: x={msg.x}, y={msg.y}")
@@ -44,19 +44,26 @@ class KeyboardServoController(Node):
         try:
             while rclpy.ok():
                 key = self.get_key()
-                if key == '\x1b':  # Escape sequence
-                    next1 = self.get_key()
-                    next2 = self.get_key()
-                    if next1 == '[':
-                        if next2 == 'A':  # UP
-                            self.tilt_angle = max(0, self.tilt_angle - self.increment)
-                        elif next2 == 'B':  # DOWN
-                            self.tilt_angle = min(180, self.tilt_angle + self.increment)
-                        elif next2 == 'C':  # RIGHT
-                            self.pan_angle = min(180, self.pan_angle + self.increment)
-                        elif next2 == 'D':  # LEFT
-                            self.pan_angle = max(0, self.pan_angle - self.increment)
-                        self.publish_vector()
+
+                if key is None:
+                    continue
+
+                if key == '\x1b':  # consume arrow key escape sequences without acting
+                    self.get_key()  # '['
+                    self.get_key()  # A/B/C/D — ignored
+                # WASD as plain keypresses
+                elif key == 'w':
+                    self.tilt_angle -= self.increment
+                    self.publish_vector()
+                elif key == 's':
+                    self.tilt_angle += self.increment
+                    self.publish_vector()
+                elif key == 'd':
+                    self.pan_angle += self.increment
+                    self.publish_vector()
+                elif key == 'a':
+                    self.pan_angle -= self.increment
+                    self.publish_vector()
                 elif key == 'q':
                     self.get_logger().info("Exiting...")
                     break
