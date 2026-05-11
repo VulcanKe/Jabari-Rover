@@ -24,7 +24,7 @@ setup(
     #tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-	    'jabari_pi_core.launch = jabari_rover_bringup.jabari_pi_core.launch:main',
+	    # 'jabari_pi_core.launch = jabari_rover_bringup.jabari_pi_core.launch:main',
         ],
     },
 )
