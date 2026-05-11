@@ -137,11 +137,17 @@ class ManualControlNode(Node):
         self.speed_step = float(self.get_parameter('speed_step').value)
 
         # Button mappings (can be overridden) ------------------------------
-        self.BUTTON_LIN_UP = int(self.get_parameter('button_lin_up').value)
-        self.BUTTON_LIN_DOWN = int(self.get_parameter('button_lin_down').value)
-        self.BUTTON_ANG_UP = int(self.get_parameter('button_ang_up').value)
-        self.BUTTON_ANG_DOWN = int(self.get_parameter('button_ang_down').value)
-        self.BUTTON_TOGGLE_PIVOT_MODE = int(self.get_parameter('button_toggle_pivot').value)
+        self.BUTTON_LIN_UP = 7             # R1
+        self.BUTTON_LIN_DOWN = 6          # L1
+        self.BUTTON_ANG_UP = 5             # R2
+        self.BUTTON_ANG_DOWN = 4          # L2
+        self.BUTTON_TOGGLE_PIVOT_MODE = 0  # Triangle
+
+        # self.BUTTON_LIN_UP = int(self.get_parameter('button_lin_up').value)
+        # self.BUTTON_LIN_DOWN = int(self.get_parameter('button_lin_down').value)
+        # self.BUTTON_ANG_UP = int(self.get_parameter('button_ang_up').value)
+        # self.BUTTON_ANG_DOWN = int(self.get_parameter('button_ang_down').value)
+        # self.BUTTON_TOGGLE_PIVOT_MODE = int(self.get_parameter('button_toggle_pivot').value)
 
         # Servo-related ----------------------------------------------------
         self.servo_refresh_rate_hz = float(self.get_parameter('servo_refresh_rate_hz').value)
@@ -171,13 +177,20 @@ class ManualControlNode(Node):
         # ------------------------------------------------------------------
         # Joystick mapping (axes) -- default Xbox-style; override in code or fork
         # ------------------------------------------------------------------
-        self.BUTTON_ENABLE = 9
-        self.BUTTON_RESET_PAN_TILT = 8
-        self.AXIS_LINEAR = 1
-        self.AXIS_ANGULAR = 3
-        self.AXIS_PAN = 5
-        self.AXIS_TILT = 6
+        # self.BUTTON_ENABLE = 9 
+        # self.BUTTON_RESET_PAN_TILT = 8
+        # self.AXIS_LINEAR = 1
+        # self.AXIS_ANGULAR = 3
+        # self.AXIS_PAN = 5
+        # self.AXIS_TILT = 6
         # self.AXIS_THIRD set above via param (or None)
+
+        self.BUTTON_ENABLE = 9             # START
+        self.BUTTON_RESET_PAN_TILT = 8    # SELECT
+        self.AXIS_LINEAR = 1               # Left stick Y
+        self.AXIS_ANGULAR = 0              # Left stick X
+        self.AXIS_PAN = 2                  # Right stick X
+        self.AXIS_TILT = -1                # No right stick Y on UCOM
 
         # ------------------------------------------------------------------
         # Servo state
@@ -317,9 +330,22 @@ class ManualControlNode(Node):
         self.last_button_states = list(msg.buttons)
 
         # If enabled and safe, process movement + servos ------------------
+        # if self.joy_enabled and not self.emergency_stop_active:
+        #     self.handle_movement(msg)
+        #     self.handle_servos_from_joystick(msg)
+        
+        # If enabled and safe, process movement + servos ------------------
         if self.joy_enabled and not self.emergency_stop_active:
             self.handle_movement(msg)
             self.handle_servos_from_joystick(msg)
+            # Tilt via X (up) and Box (down) buttons since no right stick Y
+            if len(msg.buttons) > 3:
+                if msg.buttons[2]:   # X → tilt up
+                    self.tilt_angle = self._clamp_angle(self.tilt_angle - self.tilt_sensitivity_deg)
+                    self.publish_vector3_servos()
+                elif msg.buttons[3]: # Box → tilt down
+                    self.tilt_angle = self._clamp_angle(self.tilt_angle + self.tilt_sensitivity_deg)
+                    self.publish_vector3_servos()
 
     # ==================================================================
     # Drive mode + scaling helpers
