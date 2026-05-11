@@ -29,14 +29,14 @@ class Vector3ToPWMNode(Node):
         # Map each component (in degrees or unit range) to PWM
         pwm0 = self.angle_to_pwm(msg.x)
         pwm1 = self.angle_to_pwm(msg.y)
-        pwm2 = self.angle_to_pwm(msg.z)
+        # pwm2 = self.angle_to_pwm(msg.z)
 
-        # Send to channels 0, 1, 2
-        self.pca.channels[0].duty_cycle = pwm0
-        self.pca.channels[1].duty_cycle = pwm1
-        self.pca.channels[2].duty_cycle = pwm2
+        # Send to channels 2, 3
+        self.pca.channels[2].duty_cycle = pwm0
+        self.pca.channels[3].duty_cycle = pwm1
+        
 
-        self.get_logger().info(f"PWM Set - CH0: {pwm0}, CH1: {pwm1}, CH2: {pwm2}")
+        self.get_logger().info(f"PWM Set - CH2: {pwm0}, CH3: {pwm1}")
 
     def angle_to_pwm(self, angle):
         """
