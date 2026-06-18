@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # network_env_pi.sh - ROS 2 network environment for Raspberry Pi core stack
-#
+#tes
 
 export ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-42}
 export RMW_IMPLEMENTATION=${RMW_IMPLEMENTATION:-rmw_fastrtps_cpp}
