@@ -38,3 +38,5 @@ Thumbs.db
 *.swp
 *~
 src/output.txt
+
+ros2_vulcan_rover.code-workspace
